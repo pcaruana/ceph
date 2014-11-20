@@ -387,31 +387,52 @@ int MDS::_command_flush_journal(std::stringstream *ss)
     return r;
   }
 
-  // Wait for all the segments to expire
-  while (!mdlog->expiry_done()) {
-    mds_lock.Unlock();
-    dout(10) << __func__ << ": sleeping for expiry" << dendl;
-    sleep(1);
-    mds_lock.Lock();
-    r = mdlog->trim_all();
-    if (r != 0) {
-      *ss << "Error " << r << " (" << cpp_strerror(r) << ") while trimming log";
-      return r;
-    }
+  // Attach contexts to wait for all expiring segments to expire
+  std::list<C_SaferCond*> expired_ctxs;
+  const std::set<LogSegment*> &expiring_segments = mdlog->get_expiring_segments();
+  for (std::set<LogSegment*>::const_iterator i = expiring_segments.begin();
+       i != expiring_segments.end(); ++i) {
+    C_SaferCond *sc = new C_SaferCond();
+    (*i)->wait_for_expiry(new MDSInternalContextWrapper(this, sc));
+    expired_ctxs.push_back(sc);
   }
+  dout(5) << __func__ << ": waiting for " << expired_ctxs.size()
+          << " segments to expire" << dendl;
+
+  // Drop mds_lock to allow progress until expiry is complete
+  mds_lock.Unlock();
+  for (std::list<C_SaferCond*>::iterator i = expired_ctxs.begin();
+       i != expired_ctxs.end(); ++i) {
+    C_SaferCond *sc = *i;
+    r = sc->wait();
+    assert(r == 0);  // MDLog is not allowed to raise errors via wait_for_expiry
+    delete sc;
+  }
+  mds_lock.Lock();
 
   dout(5) << __func__ << ": expiry complete, expire_pos/trim_pos is now " << std::hex <<
+    mdlog->get_journaler()->get_expire_pos() << "/" <<
+    mdlog->get_journaler()->get_trimmed_pos() << dendl;
+
+  // Now everyone I'm interested in is expired
+  mdlog->trim_expired_segments();
+
+  dout(5) << __func__ << ": trim complete, expire_pos/trim_pos is now " << std::hex <<
     mdlog->get_journaler()->get_expire_pos() << "/" <<
     mdlog->get_journaler()->get_trimmed_pos() << dendl;
 
   // Flush the journal header so that readers will start from after the flushed region
   C_SaferCond wrote_head;
   mdlog->get_journaler()->write_head(&wrote_head);
+  mds_lock.Unlock();  // Drop lock to allow messenger dispatch progress
   r = wrote_head.wait();
+  mds_lock.Lock();
   if (r != 0) {
       *ss << "Error " << r << " (" << cpp_strerror(r) << ") while writing header";
       return r;
   }
+
+  dout(5) << __func__ << ": write_head complete, all done!" << dendl;
 
   return 0;
 }

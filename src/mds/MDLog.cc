@@ -683,6 +683,12 @@ void MDLog::_trim_expired_segments()
     journaler->write_head(0);
 }
 
+void MDLog::trim_expired_segments()
+{
+  submit_mutex.Lock();
+  _trim_expired_segments();
+}
+
 void MDLog::_expired(LogSegment *ls)
 {
   assert(submit_mutex.is_locked_by_me());
@@ -697,6 +703,13 @@ void MDLog::_expired(LogSegment *ls)
     // expired.
     expired_segments.insert(ls);
     expired_events += ls->num_events;
+
+    // Trigger all waiters
+    for (std::list<MDSInternalContextBase*>::iterator i = ls->expiry_waiters.begin();
+        i != ls->expiry_waiters.end(); ++i) {
+      (*i)->complete(0);
+    }
+    ls->expiry_waiters.clear();
     
     logger->inc(l_mdl_evex, ls->num_events);
     logger->inc(l_mdl_segex);
