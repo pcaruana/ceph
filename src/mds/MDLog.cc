@@ -600,7 +600,7 @@ int MDLog::trim_all()
       submit_mutex.Unlock();
 
       uint64_t last_seq = ls->seq;
-      try_expire(ls, CEPH_MSG_PRIO_HIGH);  // high prio because this is administrative op
+      try_expire(ls, CEPH_MSG_PRIO_DEFAULT);
 
       submit_mutex.Lock();
       p = segments.lower_bound(last_seq + 1);
