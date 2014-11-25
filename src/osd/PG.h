@@ -1209,6 +1209,7 @@ public:
     spg_t child,
     int split_bits,
     int seed,
+    const pg_pool_t *pool,
     ObjectStore::Transaction *t) = 0;
   virtual bool _report_snap_collection_errors(
     const hobject_t &hoid,
