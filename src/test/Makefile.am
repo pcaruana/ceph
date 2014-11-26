@@ -237,6 +237,7 @@ bin_DEBUGPROGRAMS += ceph_bench_log
 ## Unit tests
 
 check_SCRIPTS += \
+	test/ceph_objectstore_tool.py \
 	test/cephtool-test-osd.sh \
 	test/cephtool-test-mon.sh \
 	test/cephtool-test-mds.sh \
@@ -251,6 +252,11 @@ check_SCRIPTS += \
 	test/osd/osd-bench.sh \
 	test/ceph-disk.sh \
 	test/mon/mon-handle-forward.sh
+
+if ENABLE_DOCKER
+check_SCRIPTS += \
+	test/ceph-disk-root.sh
+endif
 
 EXTRA_DIST += \
 	$(srcdir)/test/mon/mon-test-helpers.sh \
