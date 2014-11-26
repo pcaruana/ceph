@@ -2487,6 +2487,7 @@ void PG::upgrade(ObjectStore *store, const interval_set<snapid_t> &snapcolls)
   t.remove(META_COLL, biginfo_oid);
   t.collection_rmattr(coll, "info");
 
+  t.touch(coll, pgmeta_oid);
   map<string,bufferlist> v;
   __u8 ver = cur_struct_v;
   ::encode(ver, v[infover_key]);
