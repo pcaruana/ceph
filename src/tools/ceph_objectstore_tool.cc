@@ -2637,6 +2637,14 @@ int main(int argc, char **argv)
       ObjectStore::Transaction tran;
       ObjectStore::Transaction *t = &tran;
 
+      // XXX: Disallow any transition by checking PG::cur_struct_v instead?
+      if (struct_ver < 8) {
+        cerr << "Can't remove past-intervals because pg struct_v="
+          << struct_ver << std::endl;
+        ret = 1;
+        goto out;
+      }
+
       cout << "Remove past-intervals " << past_intervals << std::endl;
 
       past_intervals.clear();
