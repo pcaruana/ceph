@@ -388,27 +388,29 @@ int MDS::_command_flush_journal(std::stringstream *ss)
   }
 
   // Attach contexts to wait for all expiring segments to expire
+  MDSGatherBuilder expiry_gather(g_ceph_context);
+
   std::list<C_SaferCond*> expired_ctxs;
   const std::set<LogSegment*> &expiring_segments = mdlog->get_expiring_segments();
   for (std::set<LogSegment*>::const_iterator i = expiring_segments.begin();
        i != expiring_segments.end(); ++i) {
-    C_SaferCond *sc = new C_SaferCond();
-    (*i)->wait_for_expiry(new MDSInternalContextWrapper(this, sc));
-    expired_ctxs.push_back(sc);
+    (*i)->wait_for_expiry(expiry_gather.new_sub());
   }
-  dout(5) << __func__ << ": waiting for " << expired_ctxs.size()
+  dout(5) << __func__ << ": waiting for " << expiry_gather.num_subs_created()
           << " segments to expire" << dendl;
 
-  // Drop mds_lock to allow progress until expiry is complete
-  mds_lock.Unlock();
-  for (std::list<C_SaferCond*>::iterator i = expired_ctxs.begin();
-       i != expired_ctxs.end(); ++i) {
-    C_SaferCond *sc = *i;
-    r = sc->wait();
+  if (expiry_gather.has_subs()) {
+    C_SaferCond cond;
+    expiry_gather.set_finisher(new MDSInternalContextWrapper(this, &cond));
+    expiry_gather.activate();
+
+    // Drop mds_lock to allow progress until expiry is complete
+    mds_lock.Unlock();
+    int r = cond.wait();
+    mds_lock.Lock();
+
     assert(r == 0);  // MDLog is not allowed to raise errors via wait_for_expiry
-    delete sc;
   }
-  mds_lock.Lock();
 
   dout(5) << __func__ << ": expiry complete, expire_pos/trim_pos is now " << std::hex <<
     mdlog->get_journaler()->get_expire_pos() << "/" <<
